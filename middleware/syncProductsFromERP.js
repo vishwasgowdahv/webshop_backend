@@ -3,6 +3,7 @@ import Product from "../models/Product.js";
 import Error from "../models/Error.js";
 import fs from "fs";
 import path from "path";
+import { redisClient } from "../index.js";
 
 function validateProduct(product) {
   return (
@@ -84,6 +85,13 @@ async function syncProductsFromERP() {
         console.warn(`Skipping invalid product: ${JSON.stringify(product)}`);
         continue;
       }
+      if(product.stock<=0){
+        await Error.create({
+        errorCode: "OUT_OF_STOCK",
+        errorMessage: `${product.name} is out of stock`,
+        errorTag: "minor",
+      });
+      }
       const findProdut = await Product.findOne({
         productId: product.productID,
       });
@@ -142,6 +150,14 @@ async function syncProductsFromERP() {
         }
       }
     }
+
+
+    redisClient.del('fetchAllProducts', (err, result) => {
+      if (err) {
+        console.error('Error deleting key:', err);
+      } 
+    });
+
 
     return { success: true, updatedCount };
   } catch (err) {

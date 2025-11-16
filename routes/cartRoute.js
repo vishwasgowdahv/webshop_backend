@@ -2,6 +2,7 @@ import express from "express";
 import validateLogin from "../middleware/validateLogin.js";
 import User from "../models/User.js";
 import Order from "../models/Order.js";
+import { redisClient } from "../index.js";
 
 const router = express.Router();
 
@@ -174,9 +175,6 @@ router.post("/order", validateLogin, async (req, res) => {
     const match = location.match(/Orders\(([^)]+)\)/);
     const ERP_ID = match ? match[1] : null;
     console.log(ERP_ID);
-    
-    
-
 
     const orderedData = await Order.create({
       ERP_ID,
@@ -193,6 +191,13 @@ router.post("/order", validateLogin, async (req, res) => {
     await User.findByIdAndUpdate(userId, { orderHistory });
     // console.log(orderedData._id);
     await User.findByIdAndUpdate(userId, { cartData: [] });
+    redisClient.del("getallorders", (err, result) => {
+      if (err) {
+        console.error("Error deleting key:", err);
+      } else {
+        console.log("Deleted keys:", result);
+      }
+    });
     sucess = true;
     res.json({ sucess, message: "Order succesfull", data: orderedData });
   } catch (error) {
@@ -206,7 +211,18 @@ router.get("/getallorders", validateLogin, async (req, res) => {
   sucess = false;
   try {
     const userId = req.user._id;
-    const OrderData = await Order.find({ userId });
+
+    let OrderData;
+    const cached = await redisClient.get("getallorders");
+
+    if (cached) {
+      OrderData = JSON.parse(cached);
+    } else {
+      OrderData = await Order.find({ userId });
+      await redisClient.set("getallorders", JSON.stringify(OrderData));
+      await redisClient.expire("getallorders", 300);
+    }
+
     sucess = true;
     res.json({ sucess, OrderData });
   } catch (error) {

@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 const { sign, verify } = jwt;
 import { body, validationResult } from "express-validator";
+import { redisClient } from "../index.js";
 
 // files imports
 import User from "../models/User.js";
@@ -39,7 +40,7 @@ router.post(
     if (user) {
       return res.json({ sucess, error: "USER Already Exists" });
     }
-    
+
     const ERP_RES = await fetch(
       "http://localhost:4004/odata/v4/simple-erp/Customers",
       {
@@ -60,7 +61,6 @@ router.post(
     const match = location.match(/Customers\(([^)]+)\)/);
     const ERP_ID = match ? match[1] : null;
     console.log(ERP_ID);
-    
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(req.body.password, salt);
@@ -70,9 +70,8 @@ router.post(
       email: req.body.email,
       password: hashedPassword,
       address: req.body.address,
-      ERP_ID:ERP_ID
+      ERP_ID: ERP_ID,
     });
-
 
     const authtoken = sign({ id: user.id }, JWT_SECRET);
     sucess = true;
@@ -127,6 +126,13 @@ router.post("/updateuser", validateLogin, async (req, res) => {
   }
   try {
     await User.findByIdAndUpdate(req.user._id, { name, address });
+    redisClient.del('fetchuser', (err, result) => {
+  if (err) {
+    console.error('Error deleting key:', err);
+  } else {
+    console.log('Deleted keys:', result);
+  }
+});
     sucess = true;
     res.json({ sucess, message: "Updated Succesfully" });
   } catch (error) {
@@ -138,9 +144,21 @@ router.post("/updateuser", validateLogin, async (req, res) => {
 //fetchUserData
 router.get("/fetchuser", validateLogin, async (req, res) => {
   sucess = false;
-  const user = await User.findById(
-    new mongoose.Types.ObjectId(req.user.id)
-  ).select("-password");
+
+  let user;
+  const cached = await redisClient.get("fetchuser");
+
+  if (cached) {
+    user = JSON.parse(cached);
+  } else {
+    user = await User.findById(
+      new mongoose.Types.ObjectId(req.user.id)
+    ).select("-password");
+
+    await redisClient.set("fetchuser", JSON.stringify(user));
+    await redisClient.expire("fetchuser", 300);
+  }
+
   sucess = true;
   res.json({ sucess, user });
 });

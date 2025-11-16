@@ -1,6 +1,7 @@
 import express from "express";
 import mongoose from "mongoose";
 import Product from "../models/Product.js";
+import { redisClient } from "../index.js";
 
 import { body, validationResult } from "express-validator";
 import syncProductsFromERP from "../middleware/syncProductsFromERP.js";
@@ -128,19 +129,18 @@ router.post(
 router.post("/deleteProduct", async (req, res) => {
   sucess = false;
   try {
-    
-     const ERP_RES = await fetch(
-    `http://localhost:4004/odata/v4/simple-erp/Products/${req.body.ERP_ID}`,
-    {
-      method: "DELETE",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        Authorization: "Basic " + btoa("service-user:service-user"),
+    const ERP_RES = await fetch(
+      `http://localhost:4004/odata/v4/simple-erp/Products/${req.body.ERP_ID}`,
+      {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: "Basic " + btoa("service-user:service-user"),
+        },
       }
-    }
-  );
-  
+    );
+
     const id = await Product.findByIdAndDelete(req.body.id);
     if (!id) {
       res.json({
@@ -161,8 +161,20 @@ router.post("/deleteProduct", async (req, res) => {
 router.get("/fetchAllProducts", async (req, res) => {
   sucess = false;
   try {
-    await syncProductsFromERP()
-    const products = await Product.find({});
+    await syncProductsFromERP();
+    let products;
+
+    const cached = await redisClient.get("fetchAllProducts");
+
+    if (cached) {
+      products = JSON.parse(cached);
+    } else {
+      products = await Product.find({});
+
+      await redisClient.set("fetchAllProducts", JSON.stringify(products));
+      await redisClient.expire("fetchAllProducts", 300);
+    }
+
     sucess = true;
     res.json({ sucess, products });
   } catch (error) {
@@ -170,6 +182,7 @@ router.get("/fetchAllProducts", async (req, res) => {
     res.json({ sucess, message: error.message });
   }
 });
+
 router.get("/fetchFromERP", async (req, res) => {
   sucess = false;
   console.log("Route hit!");
@@ -208,5 +221,18 @@ router.get("/fetchallerrors", async (req, res) => {
     res.json({ sucess, message: error.message });
   }
 });
+
+/// delete all errors
+router.get("/deleteErrors", async (req, res) => {
+  sucess = false;
+  try {
+    const Errors = await Error.deleteMany({});
+    res.json({ sucess, Errors });
+  } catch (error) {
+    console.log(error);
+    res.json({ sucess, message: error.message });
+  }
+});
+
 
 export default router;

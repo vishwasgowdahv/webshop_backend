@@ -2,7 +2,10 @@ import express from "express";
 import validateLogin from "../middleware/validateLogin.js";
 import User from "../models/User.js";
 import Order from "../models/Order.js";
-import { redisClient } from "../index.js";
+// import { redisClient } from "../index.js";
+
+import amqp from "amqplib";
+import { v4 as uuidv4 } from "uuid";
 
 const router = express.Router();
 
@@ -129,7 +132,26 @@ router.get("/getUserCart", validateLogin, async (req, res) => {
   }
 });
 
+async function sendOrderToQueue(order,correlationId) {
+  const connection = await amqp.connect("amqp://localhost");
+  const channel = await connection.createChannel();
+  await channel.assertQueue("order.queue", { durable: true });
+  channel.sendToQueue("order.queue", Buffer.from(order), {
+    contentType: "application/json",
+    correlationId: correlationId,
+    replyTo: "order.response.queue",
+    persistent: true,
+  });
+
+  console.log("Order sent to RabbitMQ with correlationId:", correlationId);
+  setTimeout(() => {
+    channel.close();
+    connection.close();
+  }, 500);
+}
+
 // Create an order
+
 router.post("/order", validateLogin, async (req, res) => {
   sucess = false;
   try {
@@ -150,56 +172,63 @@ router.post("/order", validateLogin, async (req, res) => {
       res.status(400).json({ sucess, message: "User Not found" });
     }
 
-    const ERP_RES = await fetch(
-      "http://localhost:4004/odata/v4/simple-erp/Orders",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: "Basic " + btoa("service-user:service-user"),
-        },
-        body: JSON.stringify({
-          customer_ID: ERP_ORDER_DATA.customer_ID,
-          orderDate: ERP_ORDER_DATA.orderDate,
-          orderAmount: ERP_ORDER_DATA.orderAmount,
-          currency_code: ERP_ORDER_DATA.currency_code,
-          orderStatus_status: ERP_ORDER_DATA.orderStatus_status,
-          items: ERP_ORDER_DATA.items,
-        }),
-      }
-    );
-    // console.log(ERP_ORDER_DATA);
-    // console.log(ERP_RES);
-    const location = ERP_RES.headers.get("location");
-    const match = location.match(/Orders\(([^)]+)\)/);
-    const ERP_ID = match ? match[1] : null;
-    console.log(ERP_ID);
+    const payload = JSON.stringify({
+      customer_ID: ERP_ORDER_DATA.customer_ID,
+      orderDate: ERP_ORDER_DATA.orderDate,
+      orderAmount: ERP_ORDER_DATA.orderAmount,
+      currency_code: ERP_ORDER_DATA.currency_code,
+      orderStatus_status: ERP_ORDER_DATA.orderStatus_status,
+      items: ERP_ORDER_DATA.items,
+    });
 
-    const orderedData = await Order.create({
-      ERP_ID,
-      userId,
-      name,
-      email,
-      address,
-      total_price,
-      order_status,
-      products,
-    });
-    const orderHistory = userData.orderHistory;
-    orderHistory.push(orderedData._id);
-    await User.findByIdAndUpdate(userId, { orderHistory });
-    // console.log(orderedData._id);
-    await User.findByIdAndUpdate(userId, { cartData: [] });
-    redisClient.del("getallorders", (err, result) => {
-      if (err) {
-        console.error("Error deleting key:", err);
-      } else {
-        console.log("Deleted keys:", result);
-      }
-    });
-    sucess = true;
-    res.json({ sucess, message: "Order succesfull", data: orderedData });
+    // const ERP_RES = await fetch(
+    //   "http://localhost:4004/odata/v4/simple-erp/Orders",
+    //   {
+    //     method: "POST",
+    //     headers: {
+    //       "Content-Type": "application/json",
+    //       Accept: "application/json",
+    //       Authorization: "Basic " + btoa("service-user:service-user"),
+    //     },
+    //     body: JSON.stringify({
+    //       customer_ID: ERP_ORDER_DATA.customer_ID,
+    //       orderDate: ERP_ORDER_DATA.orderDate,
+    //       orderAmount: ERP_ORDER_DATA.orderAmount,
+    //       currency_code: ERP_ORDER_DATA.currency_code,
+    //       orderStatus_status: ERP_ORDER_DATA.orderStatus_status,
+    //       items: ERP_ORDER_DATA.items,
+    //     }),
+    //   }
+    // );
+    // console.log(ERP_ORDER_DATA);
+    // // console.log(ERP_RES);
+    // const location = ERP_RES.headers.get("location");
+    // const match = location.match(/Orders\(([^)]+)\)/);
+    // const ERP_ID = match ? match[1] : null;
+    // console.log(ERP_ID);
+
+    // if (payload) {
+      const orderedData = await Order.create({
+        ERP_ID:'null',
+        userId,
+        name,
+        email,
+        address,
+        total_price,
+        order_status,
+        products,
+      });
+      await sendOrderToQueue(payload,String(orderedData._id));
+      const orderHistory = userData.orderHistory;
+      orderHistory.push(orderedData._id);
+      await User.findByIdAndUpdate(userId, { orderHistory });
+      // console.log(orderedData._id);
+      await User.findByIdAndUpdate(userId, { cartData: [] });
+      sucess = true;
+      res.json({ sucess, message: "Order succesfull", data: orderedData });
+    // } else {
+    //   res.json({ sucess, message: "Order unsuccesfull" });
+    // }
   } catch (error) {
     console.log(error);
     res.json({ sucess, message: error.message });
@@ -213,15 +242,15 @@ router.get("/getallorders", validateLogin, async (req, res) => {
     const userId = req.user._id;
 
     let OrderData;
-    const cached = await redisClient.get("getallorders");
+    // const cached = await redisClient.get("getallorders");
 
-    if (cached) {
-      OrderData = JSON.parse(cached);
-    } else {
-      OrderData = await Order.find({ userId });
-      await redisClient.set("getallorders", JSON.stringify(OrderData));
-      await redisClient.expire("getallorders", 300);
-    }
+    // if (cached) {
+    //   OrderData = JSON.parse(cached);
+    // } else {
+    OrderData = await Order.find({ userId });
+    //   await redisClient.set("getallorders", JSON.stringify(OrderData));
+    //   await redisClient.expire("getallorders", 300);
+    // }
 
     sucess = true;
     res.json({ sucess, OrderData });

@@ -3,7 +3,7 @@ import Product from "../models/Product.js";
 import Error from "../models/Error.js";
 import fs from "fs";
 import path from "path";
-import { redisClient } from "../index.js";
+// import { redisClient } from "../index.js";
 
 function validateProduct(product) {
   return (
@@ -28,22 +28,18 @@ async function syncProductsFromERP() {
     const products = await apires.json();
     // console.log(products);
 
+    async function createJsonFiles() {
+      const fileName = `${new Date().getUTCDate()}_${
+        new Date().getUTCMonth() + 1
+      }_${new Date().getUTCFullYear()}_${new Date().getHours()}_${new Date().getMinutes()}_${new Date().getSeconds()}`;
+      fs.mkdirSync(path.dirname(`../FilesFromERP/${fileName}.json`), {
+        recursive: true,
+      });
 
-    async function createJsonFiles(){
-      const fileName=`${new Date().getUTCDate()}_${
-          new Date().getUTCMonth() + 1
-        }_${new Date().getUTCFullYear()}_${new Date().getHours()}_${new Date().getMinutes()}_${new Date().getSeconds()}`
-      fs.mkdirSync(
-      path.dirname(
-        `../FilesFromERP/${fileName}.json`
-      ),
-      { recursive: true }
-    );
-
-    fs.writeFileSync(
-      `../FilesFromERP/${fileName}.json`,
-      JSON.stringify(products, null, 2)
-    );  
+      fs.writeFileSync(
+        `../FilesFromERP/${fileName}.json`,
+        JSON.stringify(products, null, 2)
+      );
     }
     await createJsonFiles();
 
@@ -63,7 +59,6 @@ async function syncProductsFromERP() {
       });
       throw new Error("Invalid ERP API response: not an array");
     }
-
 
     let updatedCount = 0;
 
@@ -85,12 +80,12 @@ async function syncProductsFromERP() {
         console.warn(`Skipping invalid product: ${JSON.stringify(product)}`);
         continue;
       }
-      if(product.stock<=0){
+      if (product.stock <= 0) {
         await Error.create({
-        errorCode: "OUT_OF_STOCK",
-        errorMessage: `${product.name} is out of stock`,
-        errorTag: "minor",
-      });
+          errorCode: "OUT_OF_STOCK",
+          errorMessage: `${product.name} is out of stock`,
+          errorTag: "minor",
+        });
       }
       const findProdut = await Product.findOne({
         productId: product.productID,
@@ -112,7 +107,7 @@ async function syncProductsFromERP() {
         updatedCount++;
       } else {
         await Product.create({
-          ERP_ID:product.ID,
+          ERP_ID: product.ID,
           name: product.name,
           desc: product.description,
           price: product.price,
@@ -151,20 +146,17 @@ async function syncProductsFromERP() {
       }
     }
 
-
-    redisClient.del('fetchAllProducts', (err, result) => {
-      if (err) {
-        console.error('Error deleting key:', err);
-      } 
-    });
-
+    // redisClient.del("fetchAllProducts", (err, result) => {
+    //   if (err) {
+    //     console.error("Error deleting key:", err);
+    //   }
+    // });
 
     return { success: true, updatedCount };
   } catch (err) {
     await Error.create({
       errorCode: "FAILED_TO_FETCH",
-      errorMessage:
-        "failed to fetch the ERP API's, this is due to internet connection error",
+      errorMessage: "failed to fetch the ERP API's, ERP is not running",
       errorTag: "critical",
     });
     console.error("Failed to sync products from ERP:", err.message);

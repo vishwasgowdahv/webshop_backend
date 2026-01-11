@@ -4,7 +4,8 @@ import authRoute from "./routes/authRoute.js";
 import productRoute from "./routes/productRoute.js";
 import cartRoute from "./routes/cartRoute.js";
 import cors from "cors";
-import { Redis } from "ioredis";
+import consumeMQ from "./middleware/consumeFromMQ.js";
+// import { Redis } from "ioredis";
 
 const app = express();
 
@@ -12,7 +13,8 @@ const PORT = 3000;
 connectToDb();
 app.use(cors());
 
-const redisClient = new Redis();
+// const redisClient = new Redis();
+consumeMQ();
 
 app.use(express.json());
 app.use("/v1/api/auth", authRoute);
@@ -23,4 +25,4 @@ app.listen(PORT, function () {
   console.log("Server listening on Port", PORT);
 });
 
-export { redisClient };
+// export { redisClient };

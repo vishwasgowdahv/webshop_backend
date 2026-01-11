@@ -1,5 +1,5 @@
 import mongoose from "mongoose";
-const URI = "mongodb+srv://vishwasgowda722_db_user:TRhZZYIPwlRuMJyJ@cluster0.zozllfp.mongodb.net/" ;
+const URI = "mongodb+srv://vishwasgowda722:Germany123@cluster0.zozllfp.mongodb.net/" ;
 const connectToDb = async() => {
   await mongoose.connect(URI);
 };

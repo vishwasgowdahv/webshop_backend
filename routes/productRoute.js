@@ -1,7 +1,7 @@
 import express from "express";
 import mongoose from "mongoose";
 import Product from "../models/Product.js";
-import { redisClient } from "../index.js";
+// import { redisClient } from "../index.js";
 
 import { body, validationResult } from "express-validator";
 import syncProductsFromERP from "../middleware/syncProductsFromERP.js";
@@ -164,16 +164,16 @@ router.get("/fetchAllProducts", async (req, res) => {
     await syncProductsFromERP();
     let products;
 
-    const cached = await redisClient.get("fetchAllProducts");
+    // const cached = await redisClient.get("fetchAllProducts");
 
-    if (cached) {
-      products = JSON.parse(cached);
-    } else {
+    // if (cached) {
+    //   products = JSON.parse(cached);
+    // } else {
       products = await Product.find({});
 
-      await redisClient.set("fetchAllProducts", JSON.stringify(products));
-      await redisClient.expire("fetchAllProducts", 300);
-    }
+      // await redisClient.set("fetchAllProducts", JSON.stringify(products));
+      // await redisClient.expire("fetchAllProducts", 300);
+    // }
 
     sucess = true;
     res.json({ sucess, products });
